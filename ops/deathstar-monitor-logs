@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -u
+exec journalctl --user --follow --no-pager --output=short-iso \
+  -u "${DEATHSTAR_UNIT:-deathstar.service}" \
+  -u "${OMP_STATS_UNIT:-omp-stats.service}"

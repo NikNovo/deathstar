@@ -1,0 +1,241 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly SESSION=deathstar-monitor
+readonly ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+readonly STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/deathstar-monitor"
+readonly STATE_FILE="$STATE_DIR/panes.env"
+readonly EXPECTED_SOCKET="$HOME/.config/herdr/sessions/$SESSION/herdr.sock"
+
+[[ "${HERDR_ENV:-}" == "1" ]] || {
+  printf '%s\n' 'run this bootstrap from a Herdr-managed deathstar-monitor pane' >&2
+  exit 2
+}
+
+if [[ -n "${HERDR_SESSION:-}" && "${HERDR_SESSION}" != "$SESSION" ]]; then
+  printf '%s\n' 'bootstrap must run in the deathstar-monitor session' >&2
+  exit 2
+fi
+if [[ -n "${HERDR_SOCKET_PATH:-}" && "${HERDR_SOCKET_PATH}" != "$EXPECTED_SOCKET" ]]; then
+  printf '%s\n' 'bootstrap has a Herdr socket for another session' >&2
+  exit 2
+fi
+if [[ "${HERDR_SESSION:-}" != "$SESSION" && "${HERDR_SOCKET_PATH:-}" != "$EXPECTED_SOCKET" ]]; then
+  printf '%s\n' 'missing explicit deathstar-monitor session identity' >&2
+  exit 2
+fi
+if [[ "${HERDR_WORKSPACE_ID:-}" != w* || "${HERDR_TAB_ID:-}" != w*:t* || "${HERDR_PANE_ID:-}" != w*:p* ]]; then
+  printf '%s\n' 'missing Herdr pane context' >&2
+  exit 2
+fi
+
+command -v herdr >/dev/null
+command -v jq >/dev/null
+mkdir -p "$STATE_DIR"
+
+herdr_cmd() {
+  herdr --session "$SESSION" "$@"
+}
+
+die() {
+  printf 'deathstar-monitor bootstrap: %s\n' "$1" >&2
+  exit 1
+}
+
+pane_id_is_valid() {
+  [[ "$1" == w*:p* ]]
+}
+
+pane_get_json() {
+  herdr_cmd pane get "$1"
+}
+
+pane_process_json() {
+  herdr_cmd pane process-info --pane "$1"
+}
+
+pane_matches() {
+  local pane_id=$1 expected_label=$2 pane_json
+  pane_json="$(pane_get_json "$pane_id" 2>/dev/null)" || return 1
+  printf '%s' "$pane_json" | jq -e \
+    --arg pane_id "$pane_id" \
+    --arg expected_label "$expected_label" \
+    --arg workspace "$HERDR_WORKSPACE_ID" \
+    --arg tab "$HERDR_TAB_ID" \
+    '.result.pane.pane_id == $pane_id
+     and .result.pane.label == $expected_label
+     and .result.pane.workspace_id == $workspace
+     and .result.pane.tab_id == $tab' >/dev/null
+}
+
+stored_pane_is_valid() {
+  local pane_id=$1 expected_label=$2
+  pane_id_is_valid "$pane_id" || return 1
+  pane_matches "$pane_id" "$expected_label" || return 1
+  pane_process_json "$pane_id" >/dev/null 2>&1
+}
+
+current_pane_is_valid() {
+  local pane_json
+  pane_json="$(pane_get_json "$HERDR_PANE_ID" 2>/dev/null)" || return 1
+  printf '%s' "$pane_json" | jq -e \
+    --arg pane_id "$HERDR_PANE_ID" \
+    --arg workspace "$HERDR_WORKSPACE_ID" \
+    --arg tab "$HERDR_TAB_ID" \
+    '.result.pane.pane_id == $pane_id
+     and .result.pane.workspace_id == $workspace
+     and .result.pane.tab_id == $tab' >/dev/null
+}
+
+current_pane_is_valid || die 'current Herdr pane is not part of the named deathstar-monitor workspace and tab'
+
+saved_maintenance_pane=
+saved_status_pane=
+saved_logs_pane=
+load_state() {
+  [[ -f "$STATE_FILE" ]] || return 1
+  local key value
+  while IFS='=' read -r key value; do
+    [[ -n "$key" ]] || continue
+    case "$key" in
+      MAINTENANCE_PANE) saved_maintenance_pane=$value ;;
+      STATUS_PANE) saved_status_pane=$value ;;
+      LOGS_PANE) saved_logs_pane=$value ;;
+      *) return 1 ;;
+    esac
+  done <"$STATE_FILE"
+  pane_id_is_valid "$saved_maintenance_pane" \
+    && pane_id_is_valid "$saved_status_pane" \
+    && pane_id_is_valid "$saved_logs_pane"
+}
+
+if load_state; then
+  if ! stored_pane_is_valid "$saved_maintenance_pane" maintenance; then saved_maintenance_pane=; fi
+  if ! stored_pane_is_valid "$saved_status_pane" status; then saved_status_pane=; fi
+  if ! stored_pane_is_valid "$saved_logs_pane" logs; then saved_logs_pane=; fi
+fi
+
+pane_list_json="$(herdr_cmd pane list --workspace "$HERDR_WORKSPACE_ID")"
+printf '%s' "$pane_list_json" | jq -e '.result.panes | type == "array"' >/dev/null
+
+for label in maintenance status logs; do
+  count="$(printf '%s' "$pane_list_json" | jq -r \
+    --arg label "$label" \
+    --arg workspace "$HERDR_WORKSPACE_ID" \
+    --arg tab "$HERDR_TAB_ID" \
+    '[.result.panes[]?
+      | select(.label == $label and .workspace_id == $workspace and .tab_id == $tab)]
+     | length')"
+  [[ "$count" =~ ^[0-9]+$ ]] || die "could not count $label panes"
+  (( count <= 1 )) || die "duplicate $label panes already exist; inspect before repair"
+done
+
+find_labeled_pane() {
+  local label=$1
+  printf '%s' "$pane_list_json" | jq -er \
+    --arg label "$label" \
+    --arg workspace "$HERDR_WORKSPACE_ID" \
+    --arg tab "$HERDR_TAB_ID" \
+    'first(.result.panes[]?
+      | select(.label == $label and .workspace_id == $workspace and .tab_id == $tab)
+      | .pane_id) // empty'
+}
+
+maintenance_pane=
+status_pane=
+logs_pane=
+if [[ -z "$saved_maintenance_pane" ]]; then maintenance_pane="$(find_labeled_pane maintenance || true)"; else maintenance_pane=$saved_maintenance_pane; fi
+if [[ -z "$saved_status_pane" ]]; then status_pane="$(find_labeled_pane status || true)"; else status_pane=$saved_status_pane; fi
+if [[ -z "$saved_logs_pane" ]]; then logs_pane="$(find_labeled_pane logs || true)"; else logs_pane=$saved_logs_pane; fi
+
+current_label="$(pane_get_json "$HERDR_PANE_ID" | jq -r '.result.pane.label // empty')"
+maintenance_new=0
+
+split_and_rename() {
+  local parent=$1 direction=$2 label=$3 split_json new_pane
+  split_json="$(herdr_cmd pane split --pane "$parent" --direction "$direction" \
+    --cwd "$ROOT" --no-focus)"
+  new_pane="$(printf '%s' "$split_json" | jq -er '.result.pane.pane_id')"
+  pane_id_is_valid "$new_pane" || die "Herdr returned an invalid pane ID for $label"
+  herdr_cmd pane rename "$new_pane" "$label" >/dev/null
+  printf '%s\n' "$new_pane"
+}
+
+if [[ -z "$maintenance_pane" ]]; then
+  if [[ "$HERDR_PANE_ID" == "$status_pane" || "$HERDR_PANE_ID" == "$logs_pane" ]]; then
+    maintenance_pane="$(split_and_rename "$HERDR_PANE_ID" right maintenance)"
+  elif [[ -z "$current_label" ]]; then
+    herdr_cmd pane rename "$HERDR_PANE_ID" maintenance >/dev/null
+    maintenance_pane="$HERDR_PANE_ID"
+  else
+    maintenance_pane="$(split_and_rename "$HERDR_PANE_ID" right maintenance)"
+  fi
+  maintenance_new=1
+fi
+if [[ -z "$status_pane" ]]; then
+  status_pane="$(split_and_rename "$maintenance_pane" right status)"
+fi
+if [[ -z "$logs_pane" ]]; then
+  logs_pane="$(split_and_rename "$status_pane" down logs)"
+fi
+
+for pair in \
+  "$maintenance_pane maintenance" \
+  "$status_pane status" \
+  "$logs_pane logs"; do
+  read -r pane_id label <<<"$pair"
+  pane_matches "$pane_id" "$label" || die "$label pane did not validate after layout repair"
+  pane_process_json "$pane_id" >/dev/null 2>&1 || die "$label pane process state is unavailable"
+done
+
+pane_runs_script() {
+  local pane_id=$1 script_path=$2 process_json
+  process_json="$(pane_process_json "$pane_id" 2>/dev/null)" || return 1
+  printf '%s' "$process_json" | jq -e --arg script_path "$script_path" '
+    (.result.process_info // {}) | tostring | contains($script_path)
+  ' >/dev/null
+}
+
+pane_is_available_shell() {
+  local pane_id=$1 process_json
+  process_json="$(pane_process_json "$pane_id" 2>/dev/null)" || return 1
+  printf '%s' "$process_json" | jq -e '
+    (.result.process_info.foreground_processes // [])
+    | all(.[]?; (((.argv0 // .command // .exe // "") | tostring)
+      | test("(^|/)(bash|sh|zsh|fish)$")))
+  ' >/dev/null
+}
+
+start_monitor_if_needed() {
+  local pane_id=$1 script_path=$2
+  if pane_runs_script "$pane_id" "$script_path"; then return 0; fi
+  pane_is_available_shell "$pane_id" || die "pane $pane_id is busy; refusing to replace its foreground process"
+  herdr_cmd pane run "$pane_id" "$script_path" >/dev/null
+  pane_runs_script "$pane_id" "$script_path" || die "monitor script did not start in pane $pane_id"
+}
+
+start_monitor_if_needed "$status_pane" "$ROOT/ops/deathstar-monitor-status"
+start_monitor_if_needed "$logs_pane" "$ROOT/ops/deathstar-monitor-logs"
+if (( maintenance_new == 1 )); then
+  herdr_cmd pane run "$maintenance_pane" \
+    "printf '%s\\n' 'maintenance commands are manual and audited'" >/dev/null
+fi
+
+state_tmp=""
+cleanup_state_tmp() {
+  [[ -z "$state_tmp" ]] || rm -f -- "$state_tmp"
+}
+trap cleanup_state_tmp EXIT
+state_tmp="$(mktemp "$STATE_DIR/panes.env.XXXXXX")"
+{
+  printf 'MAINTENANCE_PANE=%s\n' "$maintenance_pane"
+  printf 'STATUS_PANE=%s\n' "$status_pane"
+  printf 'LOGS_PANE=%s\n' "$logs_pane"
+} >"$state_tmp"
+chmod 0600 "$state_tmp"
+mv -f -- "$state_tmp" "$STATE_FILE"
+state_tmp=
+
+printf 'maintenance pane: %s (manual commands)\n' "$maintenance_pane"
+printf 'status pane: %s (%s)\n' "$status_pane" "$ROOT/ops/deathstar-monitor-status"
+printf 'logs pane: %s (%s)\n' "$logs_pane" "$ROOT/ops/deathstar-monitor-logs"

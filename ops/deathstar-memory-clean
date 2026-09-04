@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if (($# != 0)); then
+  printf '%s\n' 'arguments are not accepted' >&2
+  exit 64
+fi
+
+exec /usr/bin/flock -n /run/lock/deathstar-memory-clean.lock \
+  /usr/local/libexec/deathstar-memory-clean.bin

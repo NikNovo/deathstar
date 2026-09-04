@@ -1,0 +1,25 @@
+{
+  "name": "deathstar",
+  "version": "0.1.0",
+  "description": "Local-first observability dashboard for host memory pressure and OMP/Herdr sessions.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NikNovo/deathstar.git"
+  },
+  "bugs": {
+    "url": "https://github.com/NikNovo/deathstar/issues"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/server.ts",
+    "start": "bun src/server.ts",
+    "demo": "bun scripts/demo-server.ts",
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit",
+    "build:web": "bun build web/app.js --outdir dist/web"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14"
+  }
+}

@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+cache_root="${XDG_CACHE_HOME:-$HOME/.cache}"
+mkdir -p "$cache_root"
+tmp_dir="$(mktemp -d "$cache_root/deathstar-install.XXXXXX")"
+sudoers_tmp=""
+
+cleanup() {
+  if [[ -n "$sudoers_tmp" ]]; then
+    sudo rm -f -- "$sudoers_tmp" 2>/dev/null || true
+  fi
+  rm -rf -- "$tmp_dir"
+}
+trap cleanup EXIT
+
+helper_bin="$tmp_dir/deathstar-memory-clean.bin"
+sudoers_source="$repo_dir/ops/deathstar-memory-clean.sudoers"
+sudoers_destination="/etc/sudoers.d/deathstar-memory-clean"
+sudoers_tmp="${sudoers_destination}.tmp.$$"
+run_user="$(id -un)"
+[[ "$run_user" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]] || {
+  printf 'unsupported Unix username: %s\n' "$run_user" >&2
+  exit 2
+}
+sudoers_rendered="$tmp_dir/deathstar-memory-clean.rendered"
+sed "s/^@DEATHSTAR_USER@ /${run_user} /" "$sudoers_source" >"$sudoers_rendered"
+test -s "$sudoers_rendered"
+
+TMPDIR="$tmp_dir" bun build --compile "$repo_dir/src/memory-helper.ts" --outfile "$helper_bin"
+test -x "$helper_bin"
+sudo -v
+sudo visudo -cf "$sudoers_rendered"
+
+sudo install -o root -g root -m 0755 "$helper_bin" /usr/local/libexec/deathstar-memory-clean.bin
+sudo install -o root -g root -m 0755 "$repo_dir/ops/deathstar-memory-clean" /usr/local/libexec/deathstar-memory-clean
+sudo install -o root -g root -m 0440 "$sudoers_rendered" "$sudoers_tmp"
+sudo visudo -cf "$sudoers_tmp"
+sudo mv -f -- "$sudoers_tmp" "$sudoers_destination"
+sudoers_tmp=""
+sudo visudo -cf "$sudoers_destination"
+
+sudo test "$(sudo stat -c '%u:%g:%a' /usr/local/libexec/deathstar-memory-clean)" = "0:0:755"
+sudo test "$(sudo stat -c '%u:%g:%a' /usr/local/libexec/deathstar-memory-clean.bin)" = "0:0:755"
+sudo test "$(sudo stat -c '%u:%g:%a' "$sudoers_destination")" = "0:0:440"
+
+mkdir -p "$HOME/.config/systemd/user"
+cp "$repo_dir/ops/deathstar.service" "$HOME/.config/systemd/user/deathstar.service"
+systemctl --user daemon-reload
+systemctl --user restart deathstar.service
+systemctl --user is-active --quiet deathstar.service
+
+printf '%s\n' "Privileged helper installed and Deathstar restarted."
+"$repo_dir/bin/deathstar" doctor --json

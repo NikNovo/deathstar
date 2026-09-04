@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta name="theme-color" content="#0b0f14">
+    <title>deathstar · OMP health</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <header class="topbar">
+      <div class="brand-lockup">
+        <span class="brand-mark" aria-hidden="true">DS</span>
+        <div>
+          <p class="eyebrow">OMP / HERDR HEALTH</p>
+          <h1>deathstar</h1>
+          <p id="last-updated" class="muted">Waiting for the first sample…</p>
+        </div>
+      </div>
+      <nav class="links" aria-label="Related dashboards">
+        <span class="live-indicator"><span class="live-dot" aria-hidden="true"></span>Polling · 5s</span>
+        <a href="http://127.0.0.1:3847/" target="_blank" rel="noreferrer">OMP stats <span class="sr-only">(opens in a new tab)</span></a>
+        <button id="refresh" class="primary-action" type="button">Refresh</button>
+      </nav>
+    </header>
+
+    <main id="main-content" tabindex="-1">
+      <section id="status-cards" class="cards" aria-label="Current host health"></section>
+      <div id="dashboard-announcer" class="sr-only" role="status" aria-live="polite"></div>
+      <section id="subscription-usage" class="panel usage-panel" aria-labelledby="subscription-usage-title">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">SUBSCRIPTION USAGE</p>
+            <h2 id="subscription-usage-title">Provider capacity</h2>
+          </div>
+          <span id="usage-updated" class="muted">Waiting for usage snapshot…</span>
+        </div>
+        <div id="usage-status" class="usage-status warning" aria-live="polite">Loading usage…</div>
+        <div id="usage-details" class="usage-details"></div>
+      </section>
+
+
+      <div class="operations-grid">
+      <section class="panel" aria-labelledby="sessions-title">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">LIVE PROCESSES</p>
+            <h2 id="sessions-title">OMP sessions</h2>
+          </div>
+          <span id="session-summary" class="muted"></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <caption class="sr-only">Live OMP process sessions and memory measurements</caption>
+            <thead>
+              <tr>
+                <th scope="col">Session</th>
+                <th scope="col">State</th>
+                <th scope="col">PID</th>
+                <th scope="col">RSS</th>
+                <th scope="col">Cgroup</th>
+                <th scope="col">OOM</th>
+                <th scope="col">Last seen</th>
+              </tr>
+            </thead>
+            <tbody id="session-table"></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="panel" aria-labelledby="top-consumers-title">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">TOP CONSUMERS</p>
+            <h2 id="top-consumers-title">Foreground OMP memory</h2>
+          </div>
+        </div>
+        <ol id="top-consumers" class="consumer-list"></ol>
+      </section>
+      </div>
+      <section class="chart-grid" aria-label="24-hour history">
+        <article class="panel chart-panel" aria-labelledby="ram-chart-title">
+          <div class="panel-heading"><h2 id="ram-chart-title">Available RAM</h2><span class="muted">24 hours</span></div>
+          <div id="ram-chart" class="chart" aria-label="Available RAM history"></div>
+        </article>
+        <article class="panel chart-panel" aria-labelledby="process-count-chart-title">
+          <div class="panel-heading"><h2 id="process-count-chart-title">OMP process count</h2><span class="muted">24 hours</span></div>
+          <div id="process-count-chart" class="chart" aria-label="OMP process count history"></div>
+        </article>
+        <article class="panel chart-panel" aria-labelledby="process-memory-chart-title">
+          <div class="panel-heading"><h2 id="process-memory-chart-title">Cgroup memory</h2><span class="muted">24 hours</span></div>
+          <div id="process-memory-chart" class="chart" aria-label="Cgroup memory history"></div>
+        </article>
+      </section>
+
+      <section class="panel" aria-labelledby="events-title">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">INCIDENTS</p>
+            <h2 id="events-title">Events</h2>
+          </div>
+          <span id="event-summary" class="muted"></span>
+        </div>
+        <ol id="events" class="events"></ol>
+      </section>
+
+      <section id="source-errors" class="source-errors" role="alert" aria-live="assertive" hidden></section>
+    </main>
+    <dialog id="model-dialog" class="model-dialog" aria-labelledby="model-dialog-title" aria-describedby="model-dialog-count">
+      <div class="model-dialog-heading">
+        <div>
+          <p class="eyebrow">MODEL LIMITS</p>
+          <h3 id="model-dialog-title">Provider models</h3>
+        </div>
+        <button id="model-dialog-close" class="model-dialog-close" type="button" aria-label="Close model details">Close</button>
+      </div>
+      <label class="model-dialog-filter-label" for="model-dialog-filter">Filter models</label>
+      <input id="model-dialog-filter" class="model-dialog-filter" type="search" placeholder="Search by name or ID" autocomplete="off">
+      <p id="model-dialog-count" class="muted" aria-live="polite"></p>
+      <div id="model-dialog-details" class="model-dialog-details" aria-live="polite"></div>
+    </dialog>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

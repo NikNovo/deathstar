@@ -1,0 +1,1 @@
+@DEATHSTAR_USER@ ALL=(root) NOPASSWD: /usr/local/libexec/deathstar-memory-clean ""

@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -u
+
+readonly INTERVAL_SECONDS="${DEATHSTAR_MONITOR_INTERVAL_SECONDS:-15}"
+readonly DEATHSTAR_URL="${DEATHSTAR_MONITOR_URL:-http://127.0.0.1:3848}"
+readonly OMP_STATS_URL="${DEATHSTAR_OMP_STATS_URL:-http://127.0.0.1:3847/api/stats/overview}"
+readonly DEATHSTAR_UNIT="${DEATHSTAR_UNIT:-deathstar.service}"
+readonly OMP_STATS_UNIT="${OMP_STATS_UNIT:-omp-stats.service}"
+
+report() {
+  printf '\033[H\033[2J'
+  printf 'deathstar-monitor %s\n\n' "$(date --iso-8601=seconds)"
+  printf '%-22s %s\n' "$DEATHSTAR_UNIT" "$(systemctl --user is-active "$DEATHSTAR_UNIT" 2>&1 || true)"
+  printf '%-22s %s\n' "$OMP_STATS_UNIT" "$(systemctl --user is-active "$OMP_STATS_UNIT" 2>&1 || true)"
+  printf '\n-- Deathstar healthz (%s) --\n' "$DEATHSTAR_URL"
+  curl --max-time 3 --silent --show-error --fail "$DEATHSTAR_URL/healthz" || printf 'ERROR: Deathstar healthz unavailable\n'
+  printf '\n-- Deathstar maintenance (%s) --\n' "$DEATHSTAR_URL"
+  curl --max-time 3 --silent --show-error --fail "$DEATHSTAR_URL/api/maintenance" || printf 'ERROR: maintenance endpoint unavailable\n'
+  printf '\n-- OMP Stats (%s) --\n' "$OMP_STATS_URL"
+  curl --max-time 3 --silent --show-error --fail "$OMP_STATS_URL" >/dev/null \
+    && printf 'reachable\n' \
+    || printf 'ERROR: OMP Stats unavailable\n'
+  printf '\n-- Memory --\n'
+  free -h || true
+  printf '\n-- Swap --\n'
+  swapon --show || true
+}
+
+while :; do
+  report
+  [[ "${DEATHSTAR_MONITOR_ONCE:-0}" == "1" ]] && exit 0
+  sleep "$INTERVAL_SECONDS"
+done

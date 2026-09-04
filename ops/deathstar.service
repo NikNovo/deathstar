@@ -1,0 +1,28 @@
+[Unit]
+Description=Deathstar OMP and Herdr health dashboard
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/deathstar
+ExecStart=/usr/bin/env bun %h/deathstar/src/server.ts
+Restart=on-failure
+RestartSec=5
+Environment=HOME=%h
+Environment=XDG_STATE_HOME=%h/.local/state
+Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=DEATHSTAR_HOST=127.0.0.1
+Environment=DEATHSTAR_PORT=3848
+Environment=DEATHSTAR_DASHBOARD_ORIGIN=http://127.0.0.1:3848
+Environment=DEATHSTAR_MEMORY_HELPER=/usr/local/libexec/deathstar-memory-clean
+Environment=DEATHSTAR_MEMORY_TIMEOUT_MS=30000
+Environment=DEATHSTAR_MEMORY_COOLDOWN_MS=60000
+Environment=DEATHSTAR_STATE_CONFIRM_SAMPLES=2
+Environment=DEATHSTAR_STATE_RECOVERY_SAMPLES=3
+Environment=DEATHSTAR_MEMORY_GROWTH_BYTES=536870912
+Environment=DEATHSTAR_MEMORY_GROWTH_WINDOW_MS=300000
+Environment=DEATHSTAR_AUTO_CLEANUP=off
+Environment=DEATHSTAR_AUTO_CLEANUP_COOLDOWN_MS=600000
+
+[Install]
+WantedBy=default.target

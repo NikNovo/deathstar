@@ -1,0 +1,16 @@
+[Unit]
+Description=Deathstar Herdr control-plane monitor
+After=deathstar.service omp-stats.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/deathstar
+Environment=HOME=%h
+Environment=PATH=%h/.local/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env herdr --session deathstar-monitor server
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+
+[Install]
+WantedBy=default.target
