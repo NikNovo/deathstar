@@ -77,7 +77,7 @@ function associationFor(
 function redactCommand(command: string): string {
   return command
     .replace(/--resume\s+\S+/g, "--resume <session>")
-    .replace(/\/home\/dev\/\.omp\/agent\/sessions\/\S*/g, "<session>");
+    .replace(/\/[^\s]*?\.omp\/agent\/sessions\/\S*/g, "<session>");
 }
 
 async function readProcessRow(

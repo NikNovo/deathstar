@@ -198,6 +198,33 @@ describe("inventory collector", () => {
     expect(snapshot?.allProcesses[0]?.command).not.toContain(".jsonl");
   });
 
+  test("redacts session paths under any home directory", async () => {
+    const procSource = {
+      listAllPids: async () => [1],
+      readMemoryBreakdown: async () => ({ anonPagesBytes: 1, shmemBytes: 2, fileCacheBytes: 3, slabBytes: 4 }),
+      readProcess: async (pid: number) => ({
+        pid,
+        ppid: 0,
+        command: "code /synthetic/home/.omp/agent/sessions/-tmp/abc.jsonl",
+        cwd: null,
+        rssBytes: 100,
+        virtualBytes: 100,
+        state: "running",
+        startedAt: null,
+      }),
+      readProcessCgroup: async () => null,
+    };
+    const collector = createInventoryCollector({
+      procSource,
+      herdrSource: { listSessions: async () => [] },
+      now: () => new Date("2026-09-06T00:00:00.000Z"),
+    });
+    await collector.refreshOnce();
+    const snapshot = collector.current();
+    expect(snapshot?.allProcesses[0]?.command).toBe("code <session>");
+    expect(snapshot?.allProcesses[0]?.command).not.toContain("/synthetic/home");
+  });
+
   test("shares one in-flight refresh between callers", async () => {
     let listCalls = 0;
     let resolveBreakdown: ((value: MemoryBreakdown) => void) | null = null;
