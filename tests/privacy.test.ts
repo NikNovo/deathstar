@@ -2,9 +2,9 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { publicEvent, publicSnapshot } from "../src/privacy.ts";
+import { publicEvent, publicInventory, publicSnapshot } from "../src/privacy.ts";
 import { createStorage } from "../src/storage.ts";
-import type { EventRecord, HealthSnapshot } from "../src/types.ts";
+import type { EventRecord, HealthSnapshot, InventorySnapshot } from "../src/types.ts";
 
 const observedAt = "2026-01-15T12:00:00.000Z";
 
@@ -56,6 +56,18 @@ function sensitiveSnapshot(): HealthSnapshot {
         state: "S",
         startedAt: observedAt,
       }],
+      paneProcesses: [{
+        pid: 43,
+        ppid: 42,
+        command: "nvim /synthetic/private/notes.md",
+        cwd: "/synthetic/private/project",
+        rssBytes: 512,
+        virtualBytes: 1024,
+        state: "S",
+        startedAt: observedAt,
+      }],
+      treeRssBytes: 1024,
+      paneRssBytes: 1536,
       cgroupPath: "/user.slice/private.scope",
       cgroupCurrentBytes: 1024,
       cgroupPeakBytes: 2048,
@@ -103,6 +115,9 @@ test("redacts paths, pane identity, command arguments and raw event details befo
     expect(current?.sessions[0]?.cgroupPath).toBeNull();
     expect(current?.sessions[0]?.processes[0]?.cwd).toBeNull();
     expect(current?.sessions[0]?.processes[0]?.command).toBe("omp");
+    expect(current?.sessions[0]?.paneProcesses[0]?.cwd).toBeNull();
+    expect(current?.sessions[0]?.paneProcesses[0]?.command).toBe("nvim");
+    expect(serialized).not.toContain("notes.md");
     expect(events[0]?.details).not.toHaveProperty("cgroupPath");
     expect(events[0]?.details).not.toHaveProperty("error");
     expect(events[0]?.message).toBe("OOM counter increased");
@@ -110,6 +125,38 @@ test("redacts paths, pane identity, command arguments and raw event details befo
     storage.close();
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("public inventory redacts commands, session names, and errors", () => {
+  const snapshot: InventorySnapshot = {
+    observedAt,
+    breakdown: { anonPagesBytes: 1, shmemBytes: 2, fileCacheBytes: 3, slabBytes: 4 },
+    processes: [{ pid: 42, command: "omp --resume /synthetic/private/transcript.jsonl", rssBytes: 1024, association: "session:agent-alpha" }],
+    allProcesses: [{ pid: 42, command: "omp --resume /synthetic/private/transcript.jsonl", rssBytes: 1024, association: "session:agent-alpha" }],
+    processCount: 1,
+    totalRssBytes: 1024,
+    remainingRssBytes: 0,
+    remainingProcessCount: 0,
+    groups: [{
+      key: "session:agent-alpha",
+      label: "session:agent-alpha",
+      rssBytes: 1024,
+      processCount: 1,
+      top: [{ pid: 42, command: "omp --resume /synthetic/private/transcript.jsonl", rssBytes: 1024, association: "session:agent-alpha" }],
+      all: [{ pid: 42, command: "omp --resume /synthetic/private/transcript.jsonl", rssBytes: 1024, association: "session:agent-alpha" }],
+    }],
+    error: "raw /synthetic/private failure",
+  };
+  const safe = publicInventory(snapshot);
+  const serialized = JSON.stringify(safe);
+  expect(serialized).not.toContain("agent-alpha");
+  expect(serialized).not.toContain("transcript.jsonl");
+  expect(serialized).not.toContain("--resume");
+  expect(serialized).not.toContain("/synthetic/private");
+  expect(safe.processes[0]?.command).toBe("omp");
+  expect(safe.allProcesses[0]?.association).toBe("session:<name>");
+  expect(safe.groups[0]?.key).toBe("session:<name>");
+  expect(safe.error).toBe("Inventory collection unavailable");
 });
 
 test("public projections preserve metrics and replace optional integration errors", () => {

@@ -2,9 +2,11 @@ import { join } from "node:path";
 import type { MemoryCleanupController } from "./memory-cleanup.ts";
 import { MemoryCleanupError } from "./memory-cleanup.ts";
 import type { CleanupResult } from "./memory-helper.ts";
+import type { InventoryCollector } from "./inventory.ts";
+import { publicInventory } from "./privacy.ts";
 import type { Storage } from "./storage.ts";
 import type { UsageMonitor } from "./usage.ts";
-import type { CurrentResponse, EventRecord, HealthResponse, HistoryResponse, UsageResponse } from "./types.ts";
+import type { CurrentResponse, EventRecord, HealthResponse, HistoryResponse, InventorySnapshot, UsageResponse } from "./types.ts";
 
 export interface HttpOptions {
   storage: Storage;
@@ -16,6 +18,7 @@ export interface HttpOptions {
   dashboardOrigin?: string;
   memoryCleanup?: MemoryCleanupController;
   usage?: Pick<UsageMonitor, "current">;
+  inventory?: Pick<InventoryCollector, "current" | "refreshOnce">;
 }
 
 const ASSET_TYPES: Record<string, string> = {
@@ -138,7 +141,24 @@ export function createRequestHandler(options: HttpOptions): (request: Request) =
         return cleanupErrorResponse(error);
       }
     }
+    if (url.pathname === "/api/inventory/refresh") {
+      if (request.method !== "POST") return textResponse("Method Not Allowed", "text/plain; charset=utf-8", 405);
+      if (request.headers.get("origin") !== options.dashboardOrigin) return textResponse("Forbidden", "text/plain; charset=utf-8", 403);
+      if (request.body !== null) return textResponse("Request body is not allowed", "text/plain; charset=utf-8", 400);
+      if (!options.inventory) return jsonResponse({ status: "error", code: "inventory_unavailable", error: "inventory collector is unavailable" }, 503);
+      try {
+        await options.inventory.refreshOnce();
+      } catch {
+        return jsonResponse({ status: "error", code: "inventory_failed", error: "inventory refresh failed" }, 500);
+      }
+      const refreshed = options.inventory.current();
+      return jsonResponse(refreshed ? publicInventory(refreshed) : null);
+    }
     if (request.method !== "GET") return textResponse("Method Not Allowed", "text/plain; charset=utf-8", 405);
+    if (url.pathname === "/api/inventory") {
+      const cached = options.inventory?.current() ?? options.storage.currentInventory();
+      return jsonResponse(cached ? publicInventory(cached) : null);
+    }
     if (url.pathname === "/api/usage") {
       const response: UsageResponse = options.usage?.current() || EMPTY_USAGE_RESPONSE;
       return jsonResponse(response);

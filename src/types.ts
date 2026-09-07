@@ -82,12 +82,57 @@ export interface SessionSnapshot {
   cgroupShared: boolean;
   ompState: OmpState;
   processes: ProcessSnapshot[];
+  paneProcesses: ProcessSnapshot[];
+  treeRssBytes: number | null;
+  paneRssBytes: number | null;
   cgroupPath: string | null;
   cgroupCurrentBytes: number | null;
   cgroupPeakBytes: number | null;
   cgroupOomKillCount: number | null;
   observedAt: string;
   error: string | null;
+}
+
+export interface MemoryBreakdown {
+  anonPagesBytes: number | null;
+  shmemBytes: number | null;
+  fileCacheBytes: number | null;
+  slabBytes: number | null;
+}
+
+export type InventoryAssociation =
+  | "unassociated"
+  | "ambiguous"
+  | `session:${string}`
+  | `shared-cgroup:${string}`;
+
+export interface InventoryProcess {
+  pid: number;
+  command: string;
+  rssBytes: number;
+  association: InventoryAssociation;
+}
+
+export interface InventoryGroup {
+  key: string;
+  label: string;
+  rssBytes: number;
+  processCount: number;
+  top: InventoryProcess[];
+  all: InventoryProcess[];
+}
+
+export interface InventorySnapshot {
+  observedAt: string;
+  breakdown: MemoryBreakdown;
+  processes: InventoryProcess[];
+  allProcesses: InventoryProcess[];
+  processCount: number;
+  totalRssBytes: number;
+  remainingRssBytes: number;
+  remainingProcessCount: number;
+  groups: InventoryGroup[];
+  error?: string | null;
 }
 
 export interface HealthSnapshot {
