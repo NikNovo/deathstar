@@ -248,7 +248,7 @@ describe("inventory collector", () => {
       totalRssBytes: 9,
       remainingRssBytes: 0,
       remainingProcessCount: 0,
-      groups: [{ key: "unassociated", label: "stored", rssBytes: 9, processCount: 1, top: [{ pid: 9, command: "stored", rssBytes: 9, association: "unassociated" }],
+      groups: [{ key: "unassociated", label: "Group", rssBytes: 9, processCount: 1, top: [{ pid: 9, command: "stored", rssBytes: 9, association: "unassociated" }],
         all: [{ pid: 9, command: "stored", rssBytes: 9, association: "unassociated" }] }],
     };
     const directory = mkdtempSync(join(tmpdir(), "deathstar-inventory-hydration-"));
