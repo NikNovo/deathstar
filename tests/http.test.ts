@@ -3,7 +3,7 @@ import type { Storage } from "../src/storage.ts";
 import { createHttpServer, createRequestHandler } from "../src/http.ts";
 import { MemoryCleanupError } from "../src/memory-cleanup.ts";
 import type { CleanupResult } from "../src/memory-helper.ts";
-import type { EventRecord, HealthSnapshot, HistoryResponse, UsageResponse } from "../src/types.ts";
+import type { EventRecord, HealthSnapshot, HistoryResponse, InventorySnapshot, UsageResponse } from "../src/types.ts";
 import type { MaintenanceStatus } from "../src/maintenance.ts";
 
 function snapshot(observedAt: string): HealthSnapshot {
@@ -50,6 +50,8 @@ class FakeStorage implements Storage {
   history(from: Date, to: Date): HistoryResponse { return { from: from.toISOString(), to: to.toISOString(), points: [] }; }
   events(): EventRecord[] { return []; }
   prune(): void {}
+  saveInventory(): void {}
+  currentInventory(): null { return null; }
   close(): void {}
 }
 const now = new Date("2026-08-20T12:00:05.000Z");
@@ -157,6 +159,57 @@ describe("http API", () => {
     expect(await response.json()).toEqual(usageResponse);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect((await usageHandler(new Request("http://127.0.0.1:3848/api/usage", { method: "POST" }))).status).toBe(405);
+  });
+
+  test("projects inventory responses and rejects raw session names", async () => {
+    const raw: InventorySnapshot = {
+      observedAt: "2027-01-15T08:00:00.000Z",
+      breakdown: { anonPagesBytes: 1, shmemBytes: 2, fileCacheBytes: 3, slabBytes: 4 },
+      processes: [{ pid: 42, command: "omp --resume /synthetic/private/transcript.jsonl", rssBytes: 1024, association: "session:agent-alpha" }],
+      allProcesses: [{ pid: 42, command: "omp --resume /synthetic/private/transcript.jsonl", rssBytes: 1024, association: "session:agent-alpha" }],
+      processCount: 1,
+      totalRssBytes: 1024,
+      remainingRssBytes: 0,
+      remainingProcessCount: 0,
+      groups: [{
+        key: "session:agent-alpha",
+        label: "session:agent-alpha",
+        rssBytes: 1024,
+        processCount: 1,
+        top: [{ pid: 42, command: "omp --resume /synthetic/private/transcript.jsonl", rssBytes: 1024, association: "session:agent-alpha" }],
+        all: [{ pid: 42, command: "omp --resume /synthetic/private/transcript.jsonl", rssBytes: 1024, association: "session:agent-alpha" }],
+      }],
+    };
+    let refreshCalls = 0;
+    const inventoryHandler = createRequestHandler({
+      storage: new FakeStorage(snapshot("2026-08-20T12:00:00.000Z")),
+      dashboardOrigin,
+      inventory: {
+        current: () => raw,
+        refreshOnce: async () => { refreshCalls += 1; },
+      },
+      assets: {},
+    });
+    const cached = await inventoryHandler(new Request("http://127.0.0.1:3848/api/inventory"));
+    expect(cached.status).toBe(200);
+    const cachedBody = JSON.stringify(await cached.json());
+    expect(cachedBody).not.toContain("agent-alpha");
+    expect(cachedBody).not.toContain("transcript.jsonl");
+    expect(cachedBody).not.toContain("--resume");
+    const refreshed = await inventoryHandler(new Request("http://127.0.0.1:3848/api/inventory/refresh", {
+      method: "POST",
+      headers: { Origin: dashboardOrigin },
+    }));
+    expect(refreshed.status).toBe(200);
+    expect(refreshCalls).toBe(1);
+    const refreshedBody = JSON.stringify(await refreshed.json());
+    expect(refreshedBody).not.toContain("agent-alpha");
+    expect(refreshedBody).not.toContain("transcript.jsonl");
+    expect((await inventoryHandler(new Request("http://127.0.0.1:3848/api/inventory/refresh"))).status).toBe(405);
+    expect((await inventoryHandler(new Request("http://127.0.0.1:3848/api/inventory/refresh", {
+      method: "POST",
+      headers: { Origin: "https://evil.test" },
+    }))).status).toBe(403);
   });
 
   test("returns unknown usage when no monitor is injected", async () => {

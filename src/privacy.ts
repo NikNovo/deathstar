@@ -95,13 +95,16 @@ function publicInventoryGroup(group: InventoryGroup): InventoryGroup {
 }
 
 export function publicInventory(snapshot: InventorySnapshot): InventorySnapshot {
-  return {
+  const projected = {
     ...snapshot,
-    error: snapshot.error ? "Inventory collection unavailable" : null,
     processes: snapshot.processes.map(publicInventoryProcess),
     allProcesses: snapshot.allProcesses.map(publicInventoryProcess),
     groups: snapshot.groups.map(publicInventoryGroup),
   };
+  if (snapshot.error !== undefined || "error" in snapshot) {
+    projected.error = snapshot.error ? "Inventory collection unavailable" : null;
+  }
+  return projected as InventorySnapshot;
 }
 
 export function publicEvent(event: EventRecord): EventRecord {

@@ -92,6 +92,9 @@ function baseSession(session: SessionRecord, observedAt: string): SessionSnapsho
     cgroupShared: false,
     ompState: session.running ? "unknown" : "missing",
     processes: [],
+    paneProcesses: [],
+    treeRssBytes: null,
+    paneRssBytes: null,
     cgroupPath: null,
     cgroupCurrentBytes: null,
     cgroupPeakBytes: null,
@@ -153,20 +156,61 @@ export function createHerdrSource(options: HerdrSourceOptions): HerdrSource {
 
       result.ompPid = ompPid;
       const cgroup = await options.procSource.readProcessCgroup(ompPid);
-      const pids = cgroup ? await options.procSource.listPidsInCgroup(cgroup.path) : [ompPid];
+      const cgroupPids = cgroup ? await options.procSource.listPidsInCgroup(cgroup.path) : [ompPid];
+      const foregroundPids = foreground
+        .map((candidate) => candidate.pid)
+        .filter((pid): pid is number => typeof pid === "number");
+      const pids = [...new Set([...cgroupPids, ...foregroundPids])];
       const processes = (await Promise.all(pids.map((pid) => options.procSource.readProcess(pid)))).filter(
         (process): process is ProcessSnapshot => process !== null,
       );
-      const selectedProcesses = foregroundTree(processes, ompPid);
-      const cgroupOmpPids = processes.filter(isOmpProcess).map((process) => process.pid);
-      result.processes = selectedProcesses;
+      const tree = foregroundTree(processes, ompPid);
+      const ompPresent = tree.some((process) => process.pid === ompPid);
+      if (!ompPresent) {
+        result.ompPid = null;
+        result.ompState = "missing";
+        return result;
+      }
+      const treePids = new Set(tree.map((process) => process.pid));
+      const survivingPids = new Set(processes.map((process) => process.pid));
+      const treeRssBytes = tree.reduce((sum, process) => sum + process.rssBytes, 0);
+      const neighbourRoots = foreground.filter(
+        (candidate): candidate is ForegroundProcessRecord & { pid: number } =>
+          typeof candidate.pid === "number"
+          && candidate.pid !== ompPid
+          && survivingPids.has(candidate.pid)
+          && !treePids.has(candidate.pid),
+      );
+      const neighbourPids = new Set<number>();
+      for (const root of neighbourRoots) {
+        const queue = [root.pid];
+        while (queue.length) {
+          const pid = queue.shift()!;
+          if (treePids.has(pid) || neighbourPids.has(pid)) continue;
+          neighbourPids.add(pid);
+          for (const process of processes) {
+            if (process.ppid === pid) queue.push(process.pid);
+          }
+        }
+      }
+      const byPid = new Map(processes.map((process) => [process.pid, process]));
+      const neighbours = [...neighbourPids].map((pid) => byPid.get(pid)!).filter(Boolean);
+      const paneRssBytes = treeRssBytes + neighbours.reduce((sum, process) => sum + process.rssBytes, 0);
+      result.processes = tree;
+      result.paneProcesses = neighbours;
+      result.treeRssBytes = treeRssBytes;
+      result.paneRssBytes = paneRssBytes;
+      const cgroupPidSet = new Set(cgroupPids);
+      const cgroupProcesses = processes.filter((process) => cgroupPidSet.has(process.pid));
+      const cgroupTree = foregroundTree(cgroupProcesses, ompPid);
+      const cgroupOmpPids = cgroupProcesses.filter(isOmpProcess).map((process) => process.pid);
       result.cgroupShared = cgroup !== null
-        && (pids.length !== processes.length || selectedProcesses.length !== processes.length || cgroupOmpPids.some((pid) => pid !== ompPid));
+        && (cgroupPids.length !== cgroupProcesses.length || cgroupTree.length !== cgroupProcesses.length || cgroupOmpPids.some((pid) => pid !== ompPid));
       result.cgroupPath = cgroup?.path ?? null;
       result.cgroupCurrentBytes = cgroup?.currentBytes ?? null;
       result.cgroupPeakBytes = cgroup?.peakBytes ?? null;
       result.cgroupOomKillCount = cgroup?.oomKillCount ?? null;
-      result.ompState = stateFromAgent(agentStatus, selectedProcesses.some((process) => process.pid === ompPid));
+      result.ompState = stateFromAgent(agentStatus, tree.some((process) => process.pid === ompPid));
       return result;
     } catch (error) {
       result.error = errorMessage(error);

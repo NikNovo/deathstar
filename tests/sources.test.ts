@@ -193,6 +193,8 @@ test("collects a named Herdr session and preserves zero OOM counts", async () =>
   let oomKillCount = 2;
   const procSource: ProcSource = {
     readHost: async () => { throw new Error("unused"); },
+    listAllPids: async () => [],
+    readMemoryBreakdown: async () => ({ anonPagesBytes: null, shmemBytes: null, fileCacheBytes: null, slabBytes: null }),
     readProcess: async (pid) => fakeProcess(pid, pid === 42 ? "bun /synthetic/bin/omp" : "python worker"),
     listOmpPids: async () => [42],
     readProcessCgroup: async () => fakeCgroup(oomKillCount),
@@ -237,6 +239,8 @@ test("separates a foreground OMP from sibling processes in a shared cgroup", asy
   });
   const procSource: ProcSource = {
     readHost: async () => { throw new Error("unused"); },
+    listAllPids: async () => [],
+    readMemoryBreakdown: async () => ({ anonPagesBytes: null, shmemBytes: null, fileCacheBytes: null, slabBytes: null }),
     readProcess: async (pid) => fakeProcess(pid, pid === 42 || pid === 44 ? "bun /synthetic/bin/omp" : "python worker"),
     listOmpPids: async () => [42, 44],
     readProcessCgroup: async () => fakeCgroup(2),
@@ -264,6 +268,8 @@ test("does not trust a foreground OMP missing from the global PID scan", async (
   });
   const procSource: ProcSource = {
     readHost: async () => { throw new Error("unused"); },
+    listAllPids: async () => [],
+    readMemoryBreakdown: async () => ({ anonPagesBytes: null, shmemBytes: null, fileCacheBytes: null, slabBytes: null }),
     readProcess: async (pid) => fakeProcess(pid, "bun /synthetic/bin/omp"),
     listOmpPids: async () => [44],
     readProcessCgroup: async () => fakeCgroup(0),

@@ -1,4 +1,5 @@
 import { createCommandRunner } from "./command.ts";
+import { createInventoryCollector } from "./inventory.ts";
 import { createUsageMonitor } from "./usage.ts";
 import { createMemoryCleanupController } from "./memory-cleanup.ts";
 import { createAutomaticCleanupController } from "./auto-cleanup.ts";
@@ -63,6 +64,13 @@ const collector = createCollector({
   memoryGrowthWindowMs: config.memoryGrowthWindowMs,
 });
 const storage = createStorage(config.databasePath);
+const inventory = createInventoryCollector({
+  procSource,
+  herdrSource,
+  storage,
+  initialSnapshot: storage.currentInventory(),
+  intervalMs: 60 * 60 * 1000,
+});
 const sampler = createSampler({
   clock: systemClock,
   intervalMs: config.sampleIntervalMs,
@@ -74,6 +82,7 @@ const sampler = createSampler({
 const server = createHttpServer({
   storage,
   usage,
+  inventory,
   host: config.host,
   port: config.port,
   dashboardOrigin: config.dashboardOrigin,
@@ -82,6 +91,7 @@ const server = createHttpServer({
 
 sampler.start();
 usage.start();
+inventory.start();
 console.log(`deathstar listening on http://${config.host}:${config.port}`);
 
 let shuttingDown = false;
@@ -89,7 +99,7 @@ async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`deathstar shutting down after ${signal}`);
-  await Promise.all([sampler.stop(), usage.stop()]);
+  await Promise.all([sampler.stop(), usage.stop(), inventory.stop()]);
   server.stop();
   storage.close();
 }

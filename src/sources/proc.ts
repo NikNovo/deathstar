@@ -1,6 +1,6 @@
 import { readdir, readlink } from "node:fs/promises";
 import { statfsSync } from "node:fs";
-import type { HealthState, HostSnapshot, MemoryPressure, PressureWindow, ProcessSnapshot } from "../types.ts";
+import type { HealthState, HostSnapshot, MemoryBreakdown, MemoryPressure, PressureWindow, ProcessSnapshot } from "../types.ts";
 
 export interface FileReader {
   read(path: string): Promise<string>;
@@ -35,6 +35,8 @@ export interface ProcSource {
   readHost(): Promise<HostSnapshot>;
   readProcess(pid: number): Promise<ProcessSnapshot | null>;
   listOmpPids(): Promise<number[]>;
+  listAllPids(): Promise<number[]>;
+  readMemoryBreakdown(): Promise<MemoryBreakdown>;
   readProcessCgroup(pid: number): Promise<CgroupSnapshot | null>;
   listPidsInCgroup(path: string): Promise<number[]>;
 }
@@ -61,6 +63,15 @@ function parseMeminfo(text: string): Record<string, number> {
     values[name] = parseKilobytes(line.slice(separator + 1), name);
   }
   return values;
+}
+
+function memoryBreakdown(values: Record<string, number>): MemoryBreakdown {
+  return {
+    anonPagesBytes: values.AnonPages ?? null,
+    shmemBytes: values.Shmem ?? null,
+    fileCacheBytes: values.Cached ?? null,
+    slabBytes: values.Slab ?? null,
+  };
 }
 
 function requiredValue(values: Record<string, number>, name: string): number {
@@ -151,8 +162,8 @@ function parseStatus(text: string): { ppid: number | null; rssBytes: number; vir
     if (separator > 0) values[line.slice(0, separator)] = line.slice(separator + 1).trim();
   }
   const ppid = values.PPid === undefined ? null : Number(values.PPid);
-  const rssBytes = parseKilobytes(values.VmRSS || "", "VmRSS");
-  const virtualBytes = parseKilobytes(values.VmSize || "", "VmSize");
+  const rssBytes = values.VmRSS === undefined ? 0 : parseKilobytes(values.VmRSS, "VmRSS");
+  const virtualBytes = values.VmSize === undefined ? 0 : parseKilobytes(values.VmSize, "VmSize");
   if (ppid !== null && !Number.isFinite(ppid)) throw new Error("PPid is malformed");
   return {
     ppid,
@@ -335,6 +346,15 @@ export function createProcSource(options: ProcSourceOptions = {}): ProcSource {
     async listPidsInCgroup(path) {
       const text = await reader.read(`${cgroupFsRoot}${path}/cgroup.procs`);
       return text.split(/\s+/).filter(Boolean).map(Number).filter(Number.isInteger);
+    },
+
+    async listAllPids() {
+      return listPids();
+    },
+
+    async readMemoryBreakdown() {
+      const text = await reader.read(`${procRoot}/meminfo`);
+      return memoryBreakdown(parseMeminfo(text));
     },
 
     async listOmpPids() {

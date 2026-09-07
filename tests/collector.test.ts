@@ -50,6 +50,9 @@ function session(pid: number | null, ompState: SessionSnapshot["ompState"] = "wo
     ompState,
     ompPid: pid,
     cgroupShared: false,
+    paneProcesses: [],
+    treeRssBytes: null,
+    paneRssBytes: null,
     processes: pid === null ? [] : [{
       pid,
       ppid: 1,
@@ -80,6 +83,8 @@ class FakeStorage implements Storage {
   history(): { from: string; to: string; points: [] } { return { from: "", to: "", points: [] }; }
   events(): EventRecord[] { return this.eventsWritten; }
   prune(before: Date): void { this.pruned.push(before); }
+  saveInventory(): void {}
+  currentInventory(): null { return null; }
   close(): void {}
 }
 

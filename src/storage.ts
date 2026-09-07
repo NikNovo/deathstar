@@ -6,8 +6,9 @@ import type {
   HealthSnapshot,
   HistoryPoint,
   HistoryResponse,
+  InventorySnapshot,
 } from "./types.ts";
-import { publicEvent, publicSnapshot } from "./privacy.ts";
+import { publicEvent, publicInventory, publicSnapshot } from "./privacy.ts";
 
 interface SampleRow {
   observed_at: number;
@@ -35,7 +36,12 @@ interface EventRow {
   details_json: string;
 }
 
-export interface Storage {
+export interface InventoryStorage {
+  saveInventory(snapshot: InventorySnapshot): void;
+  currentInventory(): InventorySnapshot | null;
+}
+
+export interface Storage extends InventoryStorage {
   insertSnapshot(snapshot: HealthSnapshot): void;
   insertEvents(events: EventRecord[]): void;
   current(): HealthSnapshot | null;
@@ -73,6 +79,10 @@ function migrate(database: Database): void {
       omp_count INTEGER NOT NULL,
       tmp_used_bytes INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS inventory_snapshots (
+      observed_at INTEGER PRIMARY KEY,
+      payload_json TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS session_samples (
       observed_at INTEGER NOT NULL,
       session_name TEXT NOT NULL,
@@ -94,6 +104,7 @@ function migrate(database: Database): void {
     CREATE INDEX IF NOT EXISTS samples_observed_at_idx ON samples(observed_at);
     CREATE INDEX IF NOT EXISTS session_samples_observed_at_idx ON session_samples(observed_at);
     CREATE INDEX IF NOT EXISTS events_observed_at_idx ON events(observed_at);
+    CREATE INDEX IF NOT EXISTS inventory_snapshots_observed_at_idx ON inventory_snapshots(observed_at);
   `);
 }
 
@@ -170,6 +181,10 @@ export function createStorage(databasePath: string): Storage {
       aggregate_rss_bytes, oom_kill_count
     ) VALUES (?, ?, ?, ?, ?, ?)
   `);
+  const insertInventory = database.prepare(`
+    INSERT OR REPLACE INTO inventory_snapshots (observed_at, payload_json)
+    VALUES (?, ?)
+  `);
   const insertEvent = database.prepare(`
     INSERT INTO events (
       observed_at, severity, kind, session_name, message, details_json
@@ -223,6 +238,17 @@ export function createStorage(databasePath: string): Storage {
       transaction();
     },
 
+    saveInventory(snapshot) {
+      insertInventory.run(timestamp(snapshot.observedAt), JSON.stringify(publicInventory(snapshot)));
+    },
+
+    currentInventory() {
+      const row = database.query<{ payload_json: string }, []>(
+        "SELECT payload_json FROM inventory_snapshots ORDER BY observed_at DESC LIMIT 1",
+      ).get();
+      return row ? (JSON.parse(row.payload_json) as InventorySnapshot) : null;
+    },
+
     current() {
       const row = database.query<CurrentSampleRow, []>(
         "SELECT payload_json FROM samples ORDER BY observed_at DESC LIMIT 1",
@@ -268,6 +294,7 @@ export function createStorage(databasePath: string): Storage {
         database.run("DELETE FROM samples WHERE observed_at < ?", [cutoff]);
         database.run("DELETE FROM session_samples WHERE observed_at < ?", [cutoff]);
         database.run("DELETE FROM events WHERE observed_at < ?", [cutoff]);
+        database.run("DELETE FROM inventory_snapshots WHERE observed_at < ?", [cutoff]);
       });
       transaction();
     },
