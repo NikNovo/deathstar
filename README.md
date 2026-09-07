@@ -177,6 +177,7 @@ Do not expose the loopback server directly to a network without adding an authen
 - [docs/architecture.md](docs/architecture.md) — module ownership and data flow;
 - [docs/flows.md](docs/flows.md) — first-run, incident and degraded-integration flows;
 - [docs/integrations/omp-herdr.md](docs/integrations/omp-herdr.md) — command contracts and recovery;
+- [docs/integrations/community-roadmap.md](docs/integrations/community-roadmap.md) — remaining local features with integration contracts;
 - [docs/llm-context.md](docs/llm-context.md) — compact machine-readable context;
 - [CONTRIBUTING.md](CONTRIBUTING.md) — change workflow;
 - [SECURITY.md](SECURITY.md) — disclosure and local safety model.
